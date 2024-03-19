@@ -4,7 +4,7 @@ CLIENT_ID = R"##########"
 CLIENT_SECRET = R"##########"
 
 # Put your own download path here, no need to escape backslashes but avoid ending with one.
-OUTPUT_PATH = R"path"
+OUTPUT_PATH = R"C:\Test\Zoom"
 
 # Date range (inclusive) for downloads, None value for Days gets replaced by first/last day of the month.
 START_DAY, START_MONTH, START_YEAR = 4,1,2024
@@ -32,8 +32,20 @@ RECORDING_FILE_TYPES = [
     # R"SUMMARY",        # Summary file of the recording in JSON file format.
 ]
 
+# Enable if you want the script check exact date that you will input in console
+USE_EXACT_DATE = True
+
+# Enable if you want to check weekends, if the day of the date you're checking = Friday
+CHECK_FRIDAY_WEEKENDS = True
+
+# Enable if you want to download recording with the meeting topic as it's name without suffixes
+USE_MEETING_TOPIC_NAME = True
+
 # If True, all files in the output folder will be deleted before download. If False, files will not be deleted.
 DELETE_FILES_BEFORE_DOWNLOAD = True
+
+# Set to True if you want to generate LLC (lossless-cut) files with silent detection
+GENERATE_LLC_FILES = True
 
 # If True, recordings will be grouped in folders by their owning user.
 GROUP_BY_USER = False
@@ -55,15 +67,6 @@ INCLUDE_PARTICIPANT_AUDIO = True
 # Set to True for more verbose output
 VERBOSE_OUTPUT = False
 
-# Set to True if you want to generate LLC (lossless-cut) files with silent detection
-GENERATE_LLC_FILES = True
-
-#Set the threshold for the noise, if GENERATE_LLC_FILES is True
-NOISE = -40
-
-#Set the minimum duration of the noise, if GENERATE_LLC_FILES is True
-DURATION = 7
-
 # Minimum file size to download in MB. Files smaller than this will be skipped.
 MIN_FILE_SIZE = 10
 
@@ -83,3 +86,4 @@ MINIMUM_FREE_DISK = 1 * GB
 # This was observed to happen sometimes on google drive mounted storage (mismatches of < 300 KBs)
 # Note: High tolerance might cause issues like corrupt downloads not being recognized by script.
 FILE_SIZE_MISMATCH_TOLERANCE = 0 * KB
+

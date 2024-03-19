@@ -2,20 +2,29 @@ import datetime
 import math
 import os
 import traceback
-import glob
-import shutil
 import time
+import shutil
 import subprocess
 import json
 from calendar import monthrange
+from types import ModuleType
 
 import colorama
-import requests
 from colorama import Fore, Style
 
 import utils
+from zoom_client import zoom_client
 
 colorama.init()
+
+try:
+	import config as CONFIG
+except ImportError:
+	utils.print_bright_red('Missing config file, copy config_template.py to config.py and change as needed.')
+
+client = zoom_client(
+	account_id=CONFIG.ACCOUNT_ID, client_id=CONFIG.CLIENT_ID, client_secret=CONFIG.CLIENT_SECRET
+)
 
 def delete_files_in_folder(folder_path):
     for filename in os.listdir(folder_path):
@@ -37,16 +46,21 @@ def main():
 
     print_filter_warnings()
 
-    # Prompt the user to enter the date
-    year = int(input("Enter the year: "))
-    month = int(input("Enter the month: "))
-    day = int(input("Enter the day: "))
-
-    from_date = datetime.datetime(year, month, day)
-    to_date = from_date + datetime.timedelta(days=0)
+    if CONFIG.USE_EXACT_DATE:
+        # Prompt the user to enter the date
+        year = int(input("Enter the year: "))
+        month = int(input("Enter the month: "))
+        day = int(input("Enter the day: "))
+        from_date = datetime.datetime(year, month, day)
+        to_date = from_date
+    else:
+        from_date = datetime.datetime(CONFIG.START_YEAR, CONFIG.START_MONTH, CONFIG.START_DAY or 1)
+        to_date = datetime.datetime(
+            CONFIG.END_YEAR, CONFIG.END_MONTH, CONFIG.END_DAY or monthrange(CONFIG.END_YEAR, CONFIG.END_MONTH)[1],
+        )
 
     # Check if the from_date is Friday
-    if from_date.weekday() == 4:  # 0 is Monday, so 4 is Friday
+    if CONFIG.CHECK_FRIDAY_WEEKENDS and from_date.weekday() == 4:  # 0 is Monday, so 4 is Friday
         to_date += datetime.timedelta(days=2)  # Add two days if from_date is Friday
 
     file_count, total_size, skipped_count = download_recordings(get_users(), from_date, to_date)
@@ -58,6 +72,7 @@ def main():
         f'Total size: {Fore.GREEN}{total_size_str}{Fore.RESET}.{Style.RESET_ALL}',
         f'Skipped: {skipped_count} files.'
     )
+
 
 
 def print_filter_warnings():
@@ -77,73 +92,23 @@ def print_filter_warnings():
 		print()
 
 def get_users():
-    all_users = paginate_reduce(
-        'https://api.zoom.us/v2/users?status=active', [],
-        lambda users, page: users + [user for user in page['users']]
-    ) + paginate_reduce(
-        'https://api.zoom.us/v2/users?status=inactive', [],
-        lambda users, page: users + [user for user in page['users']]
-    )
+	if CONFIG.USERS:
+		return [(email, '') for email in CONFIG.USERS]
 
-    if CONFIG.CHECK_ONLY_LICENSED:
-        # Filter for licensed users
-        users = [(user['email'], get_user_name(user)) for user in all_users if user['type'] == 2]
-    else:
-        users = [(user['email'], get_user_name(user)) for user in all_users]
-
-    return users
-
-
-def paginate_reduce(url, initial, reduce):
-	initial_url = utils.add_url_params(url, {'page_size': 300})
-	page = get_with_token(
-		lambda t: requests.get(url=initial_url, headers=get_headers(t))
-	).json()
-
-	result = initial
-	while page:
-		result = reduce(result, page)
-
-		next_page_token = page['next_page_token']
-		if next_page_token:
-			next_url = utils.add_url_params(url, {'page_token': next_page_token})
-			page = get_with_token(lambda t: requests.get(next_url, headers=get_headers(t))).json()
+	utils.print_bright('Scanning for users:')
+	active_users_url = 'https://api.zoom.us/v2/users?status=active'
+	inactive_users_url = 'https://api.zoom.us/v2/users?status=inactive'
+	
+	users = []
+	pages = utils.chain(client.paginate(active_users_url), client.paginate(inactive_users_url))
+	for page in utils.percentage_tqdm(pages):
+		if CONFIG.CHECK_ONLY_LICENSED:
+			users.extend([(user['email'], get_user_name(user)) for user in page['users'] if user['type'] == 2])
 		else:
-			page = None
+			users.extend([(user['email'], get_user_name(user)) for user in page['users']])
 
-	return result
-
-def get_with_token(get):
-	cached_token = getattr(get_with_token, 'token', '')
-
-	if cached_token:
-		response = get(cached_token)
-	
-	if not cached_token or response.status_code == 401:
-		get_with_token.token = fetch_token()
-		response = get(get_with_token.token)
-
-	if not response.ok:
-		raise Exception(f'{response.status_code} {response.text}')
-	
-	return response
-
-def fetch_token():
-	data = {
-		'grant_type': 'account_credentials',
-		'account_id': CONFIG.ACCOUNT_ID
-	}
-	response = requests.post('https://api.zoom.us/oauth/token', auth=(CONFIG.CLIENT_ID, CONFIG.CLIENT_SECRET),  data=data).json()
-	if 'access_token' not in response:
-		raise Exception(f'Unable to fetch access token: {response["reason"]} - verify your credentials.')
-
-	return response['access_token']
-
-def get_headers(token):
-	return {
-		'Authorization': f'Bearer {token}',
-		'Content-Type': 'application/json'
-	} 
+	print()
+	return users
 
 def get_user_name(user_data):
 	first_name = user_data.get("first_name")
@@ -196,7 +161,7 @@ def get_meeting_uuids(user_email, start_date, end_date):
 	local_start_date = start_date
 	delta = datetime.timedelta(days=29)
 	
-	utils.print_bright('Scanning for meetings:')
+	utils.print_bright('Scanning for recorded meetings:')
 	estimated_iterations = math.ceil((end_date-start_date) / datetime.timedelta(days=30))
 	with utils.percentage_tqdm(total=estimated_iterations) as progress_bar:
 		while local_start_date <= end_date:
@@ -204,13 +169,13 @@ def get_meeting_uuids(user_email, start_date, end_date):
 
 			local_start_date_str = date_to_str(local_start_date)
 			local_end_date_str = date_to_str(local_end_date)
-
 			url = f'https://api.zoom.us/v2/users/{user_email}/recordings?from={local_start_date_str}&to={local_end_date_str}'
-			meeting_uuids += paginate_reduce(
-				url, [],
-				lambda ids, page: ids + list(map(lambda meeting: meeting['uuid'], page['meetings']))
-			)[::-1]
+			
+			ids = []
+			for page in client.paginate(url):
+				ids.extend([meeting['uuid'] for meeting in page['meetings']])
 
+			meeting_uuids.extend(reversed(ids))
 			local_start_date = local_end_date + datetime.timedelta(days=1)
 			progress_bar.update(1)
 
@@ -218,10 +183,12 @@ def get_meeting_uuids(user_email, start_date, end_date):
 
 def get_meetings(meeting_uuids):
 	meetings = []
-	utils.print_bright(f'Scanning for recordings:')
-	for meeting_uuid in utils.percentage_tqdm(meeting_uuids):
-		url = f'https://api.zoom.us/v2/meetings/{utils.double_encode(meeting_uuid)}/recordings'
-		meetings.append(get_with_token(lambda t: requests.get(url=url, headers=get_headers(t))).json())
+
+	if meeting_uuids:
+		utils.print_bright(f'Scanning for recordings:')
+		for meeting_uuid in utils.percentage_tqdm(meeting_uuids):
+			url = f'https://api.zoom.us/v2/meetings/{utils.double_encode(meeting_uuid)}/recordings'
+			meetings.append(client.get(url))
 
 	return meetings
 
@@ -233,7 +200,7 @@ def download_recordings_from_meetings(meetings, host_folder):
             continue
         
         recording_files = meeting.get('recording_files') or []
-        participant_audio_files = meeting.get('participant_audio_files') or [] if CONFIG.INCLUDE_PARTICIPANT_AUDIO else []
+        participant_audio_files = (meeting.get('participant_audio_files') or []) if CONFIG.INCLUDE_PARTICIPANT_AUDIO else []
 
         for recording_file in recording_files + participant_audio_files:
             if 'file_size' not in recording_file:
@@ -243,10 +210,20 @@ def download_recordings_from_meetings(meetings, host_folder):
                 continue
 
             url = recording_file['download_url']
-            topic = utils.slugify(meeting['topic']).replace('-', ' ')  # This line was modified
             ext = recording_file.get('file_extension') or os.path.splitext(recording_file['file_name'])[1]
-            file_name = f'{topic}.{ext}'
-            file_size = int(recording_file.get('file_size'))
+            if CONFIG.USE_MEETING_TOPIC_NAME:
+                topic = meeting['topic']
+                file_name = f'{topic}.{ext}'
+            else:
+                topic = utils.slugify(meeting['topic'])
+                recording_name = utils.slugify(f'{topic}__{recording_file["recording_start"]}')
+                file_id = recording_file['id']
+                file_name_suffix =  os.path.splitext(recording_file['file_name'])[0] + '__' if 'file_name' in recording_file else ''
+                recording_type_suffix =  recording_file['recording_type'] + '__' if 'recording_type' in recording_file else ''
+                file_name = utils.slugify(
+                    f'{recording_name}__{recording_type_suffix}{file_name_suffix}{file_id[-8:]}'
+                ) + '.' + ext
+            file_size = int(recording_file['file_size'])
 
             if download_recording_file(url, host_folder, file_name, file_size, topic):
                 total_size += file_size
@@ -259,31 +236,34 @@ def download_recordings_from_meetings(meetings, host_folder):
 
 
 def download_recording_file(download_url, host_folder, file_name, file_size, topic):
-    # Skip download if file size is less than MIN_FILE_SIZE
-    if file_size < CONFIG.MIN_FILE_SIZE * 1024 * 1024:  # Convert MIN_FILE_SIZE from MB to bytes
-        print(f'Skipping: {file_name} (size is less than {CONFIG.MIN_FILE_SIZE} MB)')
-        return False
-
     if CONFIG.VERBOSE_OUTPUT:
         print()
         utils.print_dim(f'URL: {download_url}')
 
-    file_path = create_path(host_folder, file_name, topic)
+    file_path = create_path(host_folder, file_name, topic, file_name)
 
-    # Check if file already exists
+    # Check if a file with the same name already exists
     if os.path.exists(file_path):
-        base_name, ext = os.path.splitext(file_path)
+        base_name, ext = os.path.splitext(file_name)
         i = 1
-        # If file exists, create a new file name with suffix
-        while os.path.exists(file_path):
-            file_path = base_name + "_" + str(i) + ext
+        # Find a new file name that does not exist yet
+        while os.path.exists(os.path.join(host_folder, f'{base_name}_{i}{ext}')):
             i += 1
+        file_name = f'{base_name}_{i}{ext}'
+        file_path = create_path(host_folder, file_name, topic, file_name)
+
+    if os.path.exists(file_path) and abs(os.path.getsize(file_path) - file_size) <= CONFIG.FILE_SIZE_MISMATCH_TOLERANCE:
+        utils.print_dim(f'Skipping existing file: {file_name}')
+        return False
+    elif os.path.exists(file_path):
+        utils.print_dim_red(f'Deleting corrupt file: {file_name}')
+        os.remove(file_path)
 
     utils.print_bright(f'Downloading: {file_name}')
     utils.wait_for_disk_space(file_size, CONFIG.OUTPUT_PATH, CONFIG.MINIMUM_FREE_DISK, interval=5)
 
     tmp_file_path = file_path + '.tmp'
-    do_with_token(
+    client.do_with_token(
         lambda t: utils.download_with_progress(
             f'{download_url}?access_token={t}', tmp_file_path, file_size, CONFIG.VERBOSE_OUTPUT,
             CONFIG.FILE_SIZE_MISMATCH_TOLERANCE
@@ -295,34 +275,16 @@ def download_recording_file(download_url, host_folder, file_name, file_size, top
     return True
 
 
+def create_path(host_folder, file_name, topic, recording_name):
+	folder_path = host_folder
 
+	if CONFIG.GROUP_BY_TOPIC:
+		folder_path = os.path.join(folder_path, topic)
+	if CONFIG.GROUP_BY_RECORDING:
+		folder_path = os.path.join(folder_path, recording_name)
 
-def create_path(host_folder, file_name, topic):
-    folder_path = host_folder
-
-    if CONFIG.GROUP_BY_TOPIC:
-        folder_path = os.path.join(folder_path, topic)
-
-    os.makedirs(folder_path, exist_ok=True)
-    return os.path.join(folder_path, file_name)
-
-
-def do_with_token(do):
-	def do_as_get(token):
-		test_url = 'https://api.zoom.us/v2/users/me/recordings'
-
-		test_response = requests.get(test_url, headers=get_headers(token))
-		if test_response.ok:
-			try:
-				do(token)
-			except:
-				test_response = requests.get(test_url, headers=get_headers(token))
-				if test_response.ok:
-					raise
-
-		return test_response
-		
-	get_with_token(lambda t: do_as_get(t))
+	os.makedirs(folder_path, exist_ok=True)
+	return os.path.join(folder_path, file_name)
 
 def process_videos():
     # Initialize total time spent
@@ -330,10 +292,6 @@ def process_videos():
 
     # Use OUTPUT_PATH from config as the input and output folder
     input_output_folder = CONFIG.OUTPUT_PATH
-
-    # Use NOISE and DURATION from config as the ffmpeg parameters
-    noise = CONFIG.NOISE
-    duration = CONFIG.DURATION
 
     print(f"Processing videos in {input_output_folder}...")
     for filename in os.listdir(input_output_folder):
@@ -343,7 +301,7 @@ def process_videos():
             output_file = os.path.join(input_output_folder, os.path.splitext(filename)[0] + "-proj.llc")
             log_file = os.path.join(input_output_folder, os.path.splitext(filename)[0] + ".txt")
 
-            command = f'ffmpeg -hide_banner -vn -i "{input_file}" -af silencedetect=noise={noise}dB:d={duration} -f null - 2>&1'
+            command = f'ffmpeg -hide_banner -vn -i "{input_file}" -af silencedetect=noise=-40dB:d=7 -f null - 2>&1'
             
             # Start the timer
             start_time = time.time()
