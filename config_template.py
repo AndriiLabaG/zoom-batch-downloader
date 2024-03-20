@@ -47,6 +47,12 @@ DELETE_FILES_BEFORE_DOWNLOAD = True
 # Set to True if you want to generate LLC (lossless-cut) files with silent detection
 GENERATE_LLC_FILES = True
 
+# Threshold for the silence detection
+NOISE = -40
+
+# Minimal duration of the silence
+DURATION = 7
+
 # If True, recordings will be grouped in folders by their owning user.
 GROUP_BY_USER = False
 
