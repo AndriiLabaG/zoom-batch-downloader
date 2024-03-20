@@ -1,6 +1,7 @@
 import datetime
 import math
 import os
+import sys
 import traceback
 import time
 import shutil
@@ -301,7 +302,11 @@ def process_videos():
             output_file = os.path.join(input_output_folder, os.path.splitext(filename)[0] + "-proj.llc")
             log_file = os.path.join(input_output_folder, os.path.splitext(filename)[0] + ".txt")
 
-            command = f'ffmpeg -hide_banner -vn -i "{input_file}" -af silencedetect=noise=-40dB:d=7 -f null - 2>&1'
+            # Use noise and d values from CONFIG
+            noise = CONFIG.NOISE
+            d = CONFIG.DURATION
+
+            command = f'ffmpeg -hide_banner -vn -i "{input_file}" -af silencedetect=noise={noise}dB:d={d} -f null - 2>&1'
             
             # Start the timer
             start_time = time.time()
@@ -348,6 +353,7 @@ def process_videos():
 
     # Print the total time spent on processing videos
     print(f"Total time spent on processing videos: {total_time_spent} seconds")
+
 
 
 if __name__ == '__main__':
