@@ -234,9 +234,15 @@ def download_recordings_from_meetings(meetings, host_folder):
     
     return file_count, total_size, skipped_count
 
-
-
 def download_recording_file(download_url, host_folder, file_name, file_size, topic):
+    # Replace / and \ characters in the file name
+    file_name = file_name.replace("/", "").replace("\\", "")
+
+    # Check if the file size is less than the minimum size
+    if file_size < CONFIG.MIN_FILE_SIZE * 1024 * 1024:  # Convert MIN_FILE_SIZE from MB to bytes
+        print(f'Skipping: {file_name} (size is less than {CONFIG.MIN_FILE_SIZE} MB)')
+        return False
+
     if CONFIG.VERBOSE_OUTPUT:
         print()
         utils.print_dim(f'URL: {download_url}')
@@ -274,7 +280,6 @@ def download_recording_file(download_url, host_folder, file_name, file_size, top
     os.rename(tmp_file_path, file_path)
 
     return True
-
 
 def create_path(host_folder, file_name, topic, recording_name):
 	folder_path = host_folder
