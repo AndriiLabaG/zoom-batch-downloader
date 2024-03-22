@@ -7,6 +7,7 @@ import time
 import shutil
 import subprocess
 import json
+import re
 from calendar import monthrange
 from types import ModuleType
 
