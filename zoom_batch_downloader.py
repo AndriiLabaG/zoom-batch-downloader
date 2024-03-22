@@ -7,6 +7,7 @@ import time
 import shutil
 import subprocess
 import json
+import re
 from calendar import monthrange
 from types import ModuleType
 
@@ -236,7 +237,7 @@ def download_recordings_from_meetings(meetings, host_folder):
 
 def download_recording_file(download_url, host_folder, file_name, file_size, topic):
     # Replace / and \ characters in the file name
-    file_name = file_name.replace("/", "").replace("\\", "")
+    file_name = re.sub(r'[\\/*?:"<>|]',"", file_name)
 
     # Check if the file size is less than the minimum size
     if file_size < CONFIG.MIN_FILE_SIZE * 1024 * 1024:  # Convert MIN_FILE_SIZE from MB to bytes
