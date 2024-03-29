@@ -6,10 +6,15 @@ After detecting silent scenes, it creates [.llc](https://github.com/mifi/lossles
 
 This script requires [server-to-server app](https://developers.zoom.us/docs/internal-apps/create/) credentials from the [Zoom marketplace](https://marketplace.zoom.us/user/build)
 
-Required Scopes for your server-to-server zoom app:
+Required Scopes for your server-to-server zoom app (classic scopes):
 
 - `recording:read:admin` to download the recordings.
 - `user:read:admin` if you want the script to iterate over all users in the account (default behavior).
+
+Required Scopes for your server-to-server zoom app (granular scopes):
+- `user:read:list_users:admin`
+- `cloud_recording:read:list_user_recordings:admin`
+- `cloud_recording:read:list_recording_files:admin`
   
 ## Instructions
 
