@@ -212,7 +212,8 @@ def download_recordings_from_meetings(meetings, host_folder):
                 continue
 
             url = recording_file['download_url']
-            ext = recording_file.get('file_extension') or os.path.splitext(recording_file['file_name'])[1]
+            ext = (recording_file.get('file_extension') or os.path.splitext(recording_file['file_name'])[1]).lower()
+            
             if CONFIG.USE_MEETING_TOPIC_NAME:
                 topic = meeting['topic']
                 file_name = f'{topic}.{ext}'
@@ -220,11 +221,12 @@ def download_recordings_from_meetings(meetings, host_folder):
                 topic = utils.slugify(meeting['topic'])
                 recording_name = utils.slugify(f'{topic}__{recording_file["recording_start"]}')
                 file_id = recording_file['id']
-                file_name_suffix =  os.path.splitext(recording_file['file_name'])[0] + '__' if 'file_name' in recording_file else ''
-                recording_type_suffix =  recording_file['recording_type'] + '__' if 'recording_type' in recording_file else ''
+                file_name_suffix = os.path.splitext(recording_file['file_name'])[0] + '__' if 'file_name' in recording_file else ''
+                recording_type_suffix = recording_file['recording_type'] + '__' if 'recording_type' in recording_file else ''
                 file_name = utils.slugify(
                     f'{recording_name}__{recording_type_suffix}{file_name_suffix}{file_id[-8:]}'
                 ) + '.' + ext
+            
             file_size = int(recording_file['file_size'])
 
             if download_recording_file(url, host_folder, file_name, file_size, topic):
@@ -234,6 +236,7 @@ def download_recordings_from_meetings(meetings, host_folder):
                 skipped_count += 1
     
     return file_count, total_size, skipped_count
+
 
 def download_recording_file(download_url, host_folder, file_name, file_size, topic):
     # Replace / and \ characters in the file name
